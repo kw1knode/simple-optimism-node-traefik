@@ -1,12 +1,15 @@
 version: "3.4"
 
+networks:
+  monitor-net:
+    driver: bridge
 
 volumes:
   dtl_data: {}
   geth_data: {}
   shared: {}
   opgeth_data: {}
-  torrent_downloads:
+  torrent_downloads: {}
 
 services:
 
@@ -66,6 +69,8 @@ services:
     expose:
       - 8545 #RPC
       - 8546
+    networks:
+      - monitor-net
     profiles:
       - current
     labels:
@@ -93,6 +98,8 @@ services:
       - ./scripts/:/scripts/
     expose:
       - 7878
+    networks:
+      - monitor-net
     profiles:
       - legacy
 
@@ -118,6 +125,8 @@ services:
     expose:
       - 8545
       - 8546
+    networks:
+      - monitor-net
     profiles:
       - legacy
 
@@ -139,6 +148,8 @@ services:
     expose:
       - 9003/udp
       - 9003/tcp
+    networks:
+      - monitor-net
     profiles:
       - current
 ######################################################################################
@@ -158,6 +169,8 @@ services:
       - opgeth_data:/geth
       - geth_data:/legacy-geth
       - torrent_downloads:/downloads
+    networks:
+      - monitor-net
     profiles:
       - current
 
