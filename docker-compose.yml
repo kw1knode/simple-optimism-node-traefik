@@ -1,22 +1,108 @@
 version: "3.4"
+
+
+volumes:
+  dtl_data: {}
+  geth_data: {}
+  shared: {}
+  opgeth_data: {}
+  torrent_downloads:
+
 services:
+
+######################################################################################
+#####################         TRAEFIK PROXY CONTAINER          #######################
+######################################################################################  
+
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    restart: always
+    expose:
+      - "8082"
+    ports:
+      - "443:443"
+    command:
+      - "--api=true"
+      - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--log.level=DEBUG"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.filename=/dynamic_config.yml"
+      - "--entrypoints.websecure.address=:443"
+      - "--entryPoints.metrics.address=:8082"
+      - "--metrics.prometheus.entryPoint=metrics"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=$EMAIL"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    volumes:
+      - "./traefik/letsencrypt:/letsencrypt"
+      - "./traefik/config/dynamic_config.yml:/dynamic_config.yml"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - monitor-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.ipwhitelist.ipwhitelist.sourcerange=$WHITELIST"
+
+######################################################################################
+#####################           OP-GETH CONTAINER              #######################
+###################################################################################### 
+
+  op-geth:
+    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101304.0
+    container_name: opgeth
+    restart: unless-stopped
+    stop_grace_period: 5m
+    entrypoint: /scripts/start-op-geth.sh
+    env_file:
+      - ./envs/${NETWORK_NAME}/op-geth.env
+      - .env
+    volumes:
+      - ./scripts/:/scripts
+      - shared:/shared
+      - opgeth_data:/geth
+    expose:
+      - 8545 #RPC
+      - 8546
+    profiles:
+      - current
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.optimism.loadbalancer.server.port=8545"
+      - "traefik.http.routers.optimism.entrypoints=websecure"
+      - "traefik.http.routers.optimism.tls.certresolver=myresolver"
+      - "traefik.http.routers.optimism.rule=Host(`$OP_HOST`)"
+      - "traefik.http.routers.optimism.middlewares=ipwhitelist"
+
+######################################################################################
+#####################               DTL CONTAINER              #######################
+###################################################################################### 
+
   dtl:
     image: ethereumoptimism/data-transport-layer:${IMAGE_TAG__DTL:-latest}
+    container_name: dtl
     restart: unless-stopped
     entrypoint: /scripts/start-dtl.sh
     env_file:
       - ./envs/${NETWORK_NAME}/dtl.env
       - .env
     volumes:
-      - dtl:/db
+      - dtl_data:/db
       - ./scripts/:/scripts/
     expose:
       - 7878
     profiles:
       - legacy
 
+######################################################################################
+#####################            L2GETH CONTAINER              #######################
+###################################################################################### 
+
   l2geth:
     image: ethereumoptimism/l2geth:${IMAGE_TAG__L2GETH:-latest}
+    container_name: l2geth
     restart: unless-stopped
     stop_grace_period: 5m
     entrypoint: 
@@ -27,7 +113,7 @@ services:
       - ./envs/${NETWORK_NAME}/l2geth.env
       - .env
     volumes:
-      - geth:/geth
+      - geth_data:/geth
       - ./scripts/:/scripts/
     expose:
       - 8545
@@ -35,26 +121,13 @@ services:
     profiles:
       - legacy
 
-  op-geth:
-    image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-geth:v1.101304.0
-    restart: unless-stopped
-    stop_grace_period: 5m
-    entrypoint: /scripts/start-op-geth.sh
-    env_file:
-      - ./envs/${NETWORK_NAME}/op-geth.env
-      - .env
-    volumes:
-      - ./scripts/:/scripts
-      - shared:/shared
-      - op_geth:/geth
-    expose:
-      - 8545
-      - 8546
-    profiles:
-      - current
+######################################################################################
+#####################               OP-NODE CONTAINER          #######################
+###################################################################################### 
 
   op-node:
     image: us-docker.pkg.dev/oplabs-tools-artifacts/images/op-node:v1.3.0
+    container_name: opnode
     restart: unless-stopped
     stop_grace_period: 5m
     entrypoint: /scripts/start-op-node.sh
@@ -68,6 +141,9 @@ services:
       - 9003/tcp
     profiles:
       - current
+######################################################################################
+#####################                 BEDROCK INIT             #######################
+###################################################################################### 
 
   bedrock-init:
     build:
@@ -79,15 +155,10 @@ services:
     volumes:
       - ./scripts/:/scripts
       - shared:/shared
-      - op_geth:/geth
-      - geth:/legacy-geth
+      - opgeth_data:/geth
+      - geth_data:/legacy-geth
       - torrent_downloads:/downloads
     profiles:
       - current
 
-volumes:
-  dtl:
-  geth:
-  shared:
-  op_geth:
-  torrent_downloads:
+
